@@ -26,4 +26,9 @@ public class InputManager
     {
         _keyPressedActions.Remove(key);
     }
+
+    public void Settings()
+    {
+        
+    }
 }

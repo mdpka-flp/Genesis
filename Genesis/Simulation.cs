@@ -4,9 +4,9 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Raylib_cs;
 
-class Simulation
+public class Simulation
 {
-    public Particle[] Particles;          // Массив для лучшей локальности кэша
+    public Particle[] Particles;
     public float[,] InteractionMatrix;
 
     public float InteractionRadius;
@@ -22,11 +22,14 @@ class Simulation
 
     private Random random;
     private Color[] typeColors;
-
-    // Параметры пространственной сетки
+    
     private int gridWidth, gridHeight;
     private float cellSize;
-    private List<int>[,] grid;             // В каждой ячейке список индексов частиц
+    //private List<int>[,] grid;
+    private int[] sortedIndexes;
+    private int[] cellStart;
+    private int[] cellCount;
+    private int[] nextPos;
 
     public void Initialize(int particleCount, int typeCount)
     {
@@ -43,60 +46,19 @@ class Simulation
         Friction = 0.98f;
         MinDistance = 25f;
         RepulsionStrength = 25f;
-        cellSize = InteractionRadius;       // Размер ячейки равен радиусу взаимодействия
-
-        // Расчёт размеров сетки
+        cellSize = InteractionRadius;
+        
         gridWidth = (int)Math.Ceiling(screenWidth / cellSize);
         gridHeight = (int)Math.Ceiling(screenHeight / cellSize);
-        grid = new List<int>[gridWidth, gridHeight];
-        for (int x = 0; x < gridWidth; x++)
-            for (int y = 0; y < gridHeight; y++)
-                grid[x, y] = new List<int>();
 
-        /*InteractionMatrix = new float[typeCount, typeCount];
-        InteractionMatrix[0, 0] = -5;
-        InteractionMatrix[0, 1] = -5;
-        InteractionMatrix[0, 2] = 5;
-        InteractionMatrix[0, 3] = 5;
-        InteractionMatrix[0, 4] = -5;
-
-        InteractionMatrix[1, 0] = -5;
-        InteractionMatrix[1, 1] = -5;
-        InteractionMatrix[1, 2] = -5;
-        InteractionMatrix[1, 3] = 5;
-        InteractionMatrix[1, 4] = 5;
-
-        InteractionMatrix[2, 0] = 5;
-        InteractionMatrix[2, 1] = 5;
-        InteractionMatrix[2, 2] = 5;
-        InteractionMatrix[2, 3] = -5;
-        InteractionMatrix[2, 4] = -5;
-
-        InteractionMatrix[3, 0] = 5;
-        InteractionMatrix[3, 1] = 5;
-        InteractionMatrix[3, 2] = 5;
-        InteractionMatrix[3, 3] = -5;
-        InteractionMatrix[3, 4] = 5;
-
-        InteractionMatrix[4, 0] = 5;
-        InteractionMatrix[4, 1] = -5;
-        InteractionMatrix[4, 2] = 5;
-        InteractionMatrix[4, 3] = 5;
-        InteractionMatrix[4, 4] = -5;*/
+        sortedIndexes = new int[particleCount];
+        cellStart = new int[gridWidth * gridHeight + 1];
+        cellCount = new int[gridWidth * gridHeight];
+        nextPos = new int[gridWidth * gridHeight + 1];
 
         typeColors = new Color[typeCount];
         GenerateColors();
-
-        /*typeColors = new Color[]
-        {
-            new Color(255, 80, 80, 255),
-            new Color(80, 255, 120, 255),
-            new Color(80, 120, 255, 255),
-            new Color(89, 241, 255, 255),
-            new Color(142, 89, 255, 255),
-            new Color(255, 238, 89, 255)
-        };*/
-
+        
         for (int i = 0; i < particleCount; i++)
         {
             Particles[i] = new Particle
@@ -110,59 +72,40 @@ class Simulation
         }
     }
 
-    // Обновление сетки — распределяем частицы по ячейкам
-    private void UpdateGrid()
-    {
-        // Очищаем ячейки
-        for (int x = 0; x < gridWidth; x++)
-            for (int y = 0; y < gridHeight; y++)
-                grid[x, y].Clear();
-
-        // Заполняем заново
-        for (int i = 0; i < Particles.Length; i++)
-        {
-            var p = Particles[i];
-            int gx = (int)(p.Position.X / cellSize);
-            int gy = (int)(p.Position.Y / cellSize);
-            // Обработка выхода за границы (с учётом периодичности)
-            gx = (gx + gridWidth) % gridWidth;
-            gy = (gy + gridHeight) % gridHeight;
-            grid[gx, gy].Add(i);
-        }
-    }
-
     public void Update(float deltaTime)
     {
-        UpdateGrid();
-
-        // Многопоточное обновление частиц
+        BuildSpatialLookup();
+        
         Parallel.For(0, Particles.Length, i =>
         {
             Particle a = Particles[i];
             Vector2 acceleration = Vector2.Zero;
-
-            // Определяем ячейку частицы a
+            
             int gx = (int)(a.Position.X / cellSize);
             int gy = (int)(a.Position.Y / cellSize);
             gx = (gx + gridWidth) % gridWidth;
             gy = (gy + gridHeight) % gridHeight;
 
-            // Проверяем 3x3 окрестность ячеек (с учётом периодичности)
             for (int dx = -1; dx <= 1; dx++)
             {
                 for (int dy = -1; dy <= 1; dy++)
                 {
                     int nx = (gx + dx + gridWidth) % gridWidth;
                     int ny = (gy + dy + gridHeight) % gridHeight;
-                    foreach (int j in grid[nx, ny])
+                    int ncell = ny * gridWidth + nx;
+
+                    int start = cellStart[ncell];
+                    int end = cellStart[ncell + 1];
+
+                    for (int idx = start; idx < end; idx++)
                     {
+                        int j = sortedIndexes[idx];
                         if (i == j) continue;
                         Particle b = Particles[j];
 
                         float dxPos = b.Position.X - a.Position.X;
                         float dyPos = b.Position.Y - a.Position.Y;
-
-                        // Периодические границы
+                        
                         if (dxPos > screenWidth / 2f) dxPos -= screenWidth;
                         else if (dxPos < -screenWidth / 2f) dxPos += screenWidth;
                         if (dyPos > screenHeight / 2f) dyPos -= screenHeight;
@@ -171,7 +114,7 @@ class Simulation
                         float distanceSq = dxPos * dxPos + dyPos * dyPos;
                         if (distanceSq > 0 && distanceSq < InteractionRadius * InteractionRadius)
                         {
-                            float distance = (float)Math.Sqrt(distanceSq);
+                            float distance = (float)MathF.Sqrt(distanceSq);
                             Vector2 dir = new Vector2(dxPos, dyPos) / distance;
                             float rule = InteractionMatrix[a.Type, b.Type];
 
@@ -189,8 +132,7 @@ class Simulation
                     }
                 }
             }
-
-            // Интегрирование
+            
             a.Velocity += acceleration * deltaTime;
             a.Velocity *= Friction;
 
@@ -199,8 +141,7 @@ class Simulation
                 a.Velocity = Vector2.Normalize(a.Velocity) * maxSpeed;
 
             a.Position += a.Velocity * deltaTime;
-
-            // Периодические границы
+            
             if (a.Position.X < 0) a.Position.X += screenWidth;
             if (a.Position.X > screenWidth) a.Position.X -= screenWidth;
             if (a.Position.Y < 0) a.Position.Y += screenHeight;
@@ -215,9 +156,10 @@ class Simulation
         foreach (var p in Particles)
             Raylib.DrawCircleV(p.Position, 3f, typeColors[p.Type]);
         
-        // Статистика (не обязательно, можно оставить)
-        Raylib.DrawText("particle count: " + Particles.Length, 10, 10, 50, Color.WHITE);
-        Raylib.DrawText("type count: " + TypeCount, 10, 70, 50, Color.WHITE);
+        Raylib.DrawText("particle count: " + Particles.Length, 10, 10, 50, Color.White);
+        Raylib.DrawText("type count: " + TypeCount, 10, 70, 50, Color.White);
+        int fps = Raylib.GetFPS();
+        Raylib.DrawText($"FPS: {fps}", 10, 130, 50, Color.White);
     }
 
     public void GenerateRules()
@@ -254,6 +196,74 @@ class Simulation
             int newTypeCount = TypeCount - 1;
             Initialize(Particles.Length, newTypeCount);
             GenerateRules();
+        }
+    }
+
+    public void SetParticleCount(int newCount)
+    {
+        if (newCount == Particles.Length) return;
+
+        // Создаём новый массив нужного размера
+        Particle[] newParticles = new Particle[newCount];
+
+        // Копируем столько старых частиц, сколько влезет
+        int copyCount = Math.Min(newCount, Particles.Length);
+        Array.Copy(Particles, newParticles, copyCount);
+
+        // Если нужно больше частиц – добавляем случайные
+        for (int i = copyCount; i < newCount; i++)
+        {
+            newParticles[i] = new Particle
+            {
+                Position = new Vector2(random.Next(0, screenWidth), random.Next(0, screenHeight)),
+                Velocity = Vector2.Zero,
+                Type = random.Next(0, TypeCount)
+            };
+        }
+
+        Particles = newParticles;
+
+        // Пересоздаём вспомогательные массивы для spatial lookup
+        sortedIndexes = new int[newCount];
+        // Массивы cellStart, cellCount, nextPos пересоздавать не нужно – их размер зависит только от сетки,
+        // но они будут заполнены заново при следующем BuildSpatialLookup().
+    }
+
+    public void BuildSpatialLookup()
+    {
+        int totalCells = gridWidth * gridHeight;
+        
+        Array.Clear(cellCount, 0, totalCells);
+        
+        for (int i = 0; i < Particles.Length; i++)
+        {
+            int gx = (int)(Particles[i].Position.X / cellSize);
+            int gy = (int)(Particles[i].Position.Y / cellSize);
+            gx = (gx + gridWidth) % gridWidth;
+            gy = (gy + gridHeight) % gridHeight;
+            int cellId = gy * gridWidth + gx;
+            cellCount[cellId]++;
+        }
+        
+        cellStart[0] = 0;
+        for (int c = 0; c < totalCells; c++)
+        {
+            cellStart[c + 1] = cellStart[c] + cellCount[c];
+        }
+        
+        Array.Copy(cellStart, nextPos, cellStart.Length);
+        
+        for (int i = 0; i < Particles.Length; i++)
+        {
+            int gx = (int)(Particles[i].Position.X / cellSize);
+            int gy = (int)(Particles[i].Position.Y / cellSize);
+            gx = (gx + gridWidth) % gridWidth;
+            gy = (gy + gridHeight) % gridHeight;
+            int cellId = gy * gridWidth + gx;
+
+            int pos = nextPos[cellId];
+            sortedIndexes[pos] = i;
+            nextPos[cellId]++;
         }
     }
 }
