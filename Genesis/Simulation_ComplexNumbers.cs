@@ -4,10 +4,10 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Raylib_cs;
 
-public class Simulation
+public class Simulation_ComplexNumbers
 {
     public Particle[] Particles;
-    public float[,] InteractionMatrix;
+    public Complex[,] InteractionMatrix;
 
     public float InteractionRadius;
     public float ForceMultiplier;
@@ -44,8 +44,8 @@ public class Simulation
         InteractionRadius = 80f;
         ForceMultiplier = 40f;
         Friction = 0.98f;
-        MinDistance = 25f;
-        RepulsionStrength = 25f;
+        MinDistance = 60f;
+        RepulsionStrength = 70;
         cellSize = InteractionRadius;
         
         gridWidth = (int)Math.Ceiling(screenWidth / cellSize);
@@ -71,12 +71,12 @@ public class Simulation
             };
         }
     }
-
-    public void Update(float deltaTime)
-    {
+    
+    public void Update(float deltaTime) 
+    { 
         BuildSpatialLookup();
         
-        Parallel.For(0, Particles.Length, i =>
+        Parallel.For(0, Particles.Length, i => 
         {
             Particle a = Particles[i];
             Vector2 acceleration = Vector2.Zero;
@@ -85,7 +85,7 @@ public class Simulation
             int gy = (int)(a.Position.Y / cellSize);
             gx = (gx + gridWidth) % gridWidth;
             gy = (gy + gridHeight) % gridHeight;
-
+            
             for (int dx = -1; dx <= 1; dx++)
             {
                 for (int dy = -1; dy <= 1; dy++)
@@ -114,10 +114,9 @@ public class Simulation
                         float distanceSq = dxPos * dxPos + dyPos * dyPos;
                         if (distanceSq > 0 && distanceSq < InteractionRadius * InteractionRadius)
                         {
-                            float distance = (float)MathF.Sqrt(distanceSq);
+                            float distance = MathF.Sqrt(distanceSq);
                             Vector2 dir = new Vector2(dxPos, dyPos) / distance;
-                            float rule = InteractionMatrix[a.Type, b.Type];
-
+                            
                             if (distance < MinDistance)
                             {
                                 float repel = (1f - distance / MinDistance) * RepulsionStrength;
@@ -125,14 +124,18 @@ public class Simulation
                             }
                             else
                             {
-                                float strength = rule * (1f - distance / InteractionRadius) * ForceMultiplier;
-                                acceleration += dir * strength;
+                                Complex rule = InteractionMatrix[a.Type, b.Type];
+                                Complex dirC = new Complex(dir.X, dir.Y);
+                                Complex forceC = dirC * rule;
+                                float strength = (1f - distance / InteractionRadius) * ForceMultiplier;
+                                acceleration.X += (float)forceC.Real * strength;
+                                acceleration.Y += (float)forceC.Imaginary * strength;
                             }
                         }
                     }
-                }
+                } 
             }
-            
+
             a.Velocity += acceleration * deltaTime;
             a.Velocity *= Friction;
 
@@ -141,7 +144,8 @@ public class Simulation
                 a.Velocity = Vector2.Normalize(a.Velocity) * maxSpeed;
 
             a.Position += a.Velocity * deltaTime;
-            
+
+            // Телепортация при выходе за границы
             if (a.Position.X < 0) a.Position.X += screenWidth;
             if (a.Position.X > screenWidth) a.Position.X -= screenWidth;
             if (a.Position.Y < 0) a.Position.Y += screenHeight;
@@ -164,10 +168,32 @@ public class Simulation
 
     public void GenerateRules()
     {
-        InteractionMatrix = new float[TypeCount, TypeCount];
+        /*InteractionMatrix = new Complex[TypeCount, TypeCount];
         for (int i = 0; i < TypeCount; i++)
             for (int j = 0; j < TypeCount; j++)
-                InteractionMatrix[i, j] = (float)(random.Next(-10, 10));
+                InteractionMatrix[i, j] = (float)(random.Next(-10, 10));*/
+        
+        InteractionMatrix = new Complex[TypeCount, TypeCount];
+        if (TypeCount >= 2)
+        {
+            InteractionMatrix[0, 0] = new Complex(3, 0);
+            
+            InteractionMatrix[0, 1] = new Complex(0, 3);
+            
+            InteractionMatrix[0, 2] = new Complex(0, 3);
+            
+            InteractionMatrix[1, 0] = new Complex(0, -3);
+            
+            InteractionMatrix[1, 1] = new Complex(3, 0);
+            
+            InteractionMatrix[1, 2] = new Complex(0, -3);
+            
+            InteractionMatrix[2, 0] = new Complex(0, 3);
+            
+            InteractionMatrix[2, 1] = new Complex(0, 3);
+            
+            InteractionMatrix[2, 2] = new Complex(3, 0);
+        }
     }
 
     public void GenerateColors()
@@ -225,6 +251,16 @@ public class Simulation
 
     public void BuildSpatialLookup()
     {
+        if (cellCount == null || cellStart == null || nextPos == null || sortedIndexes == null)
+        {
+            gridWidth = (int)Math.Ceiling(screenWidth / cellSize);
+            gridHeight = (int)Math.Ceiling(screenHeight / cellSize);
+            sortedIndexes = new int[Particles.Length];
+            cellStart = new int[gridWidth * gridHeight + 1];
+            cellCount = new int[gridWidth * gridHeight];
+            nextPos = new int[gridWidth * gridHeight + 1];
+        }
+        
         int totalCells = gridWidth * gridHeight;
         
         Array.Clear(cellCount, 0, totalCells);
