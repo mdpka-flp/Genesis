@@ -4,18 +4,19 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Raylib_cs;
 
-public class Simulation
+public class Simulation : ISimulation
 {
     public Particle[] Particles;
     public float[,] InteractionMatrix;
 
-    public float InteractionRadius;
-    public float ForceMultiplier;
-    public float Friction;
-    public float MinDistance;
-    public float RepulsionStrength;
+    public float InteractionRadius { get; set; } = 80f;
+    public float ForceMultiplier { get; set; } = 40f;
+    public float Friction { get; set; } = 0.98f;
+    public float MinDistance { get; set; } = 25f;
+    public float RepulsionStrength { get; set; } = 25f;
 
-    public int TypeCount;
+    public int TypeCount { get; private set; }
+    public int ParticleCount => Particles.Length;
 
     private int screenWidth;
     private int screenHeight;
@@ -40,12 +41,7 @@ public class Simulation
 
         Particles = new Particle[particleCount];
         this.TypeCount = typeCount;
-
-        InteractionRadius = 80f;
-        ForceMultiplier = 40f;
-        Friction = 0.98f;
-        MinDistance = 25f;
-        RepulsionStrength = 25f;
+        
         cellSize = InteractionRadius;
         
         gridWidth = (int)Math.Ceiling(screenWidth / cellSize);
@@ -198,6 +194,17 @@ public class Simulation
             GenerateRules();
         }
     }
+    
+    public void Restart()
+    {
+        for (int i = 0; i < Particles.Length; i++)
+        {
+            Particles[i].Position = new Vector2(
+                random.Next(0, screenWidth),
+                random.Next(0, screenHeight));
+            Particles[i].Velocity = Vector2.Zero;
+        }
+    }
 
     public void SetParticleCount(int newCount)
     {
@@ -225,6 +232,24 @@ public class Simulation
 
     public void BuildSpatialLookup()
     {
+        screenWidth = Raylib.GetScreenWidth();
+        screenHeight = Raylib.GetScreenHeight();
+        
+        int newGridWidth = (int)Math.Ceiling(screenWidth / InteractionRadius);
+        int newGridHeight = (int)Math.Ceiling(screenHeight / InteractionRadius);
+        
+        if (newGridWidth != gridWidth || newGridHeight != gridHeight || cellSize != InteractionRadius)
+        {
+            gridWidth = newGridWidth;
+            gridHeight = newGridHeight;
+            cellSize = InteractionRadius;
+
+            sortedIndexes = new int[Particles.Length];
+            cellStart = new int[gridWidth * gridHeight + 1];
+            cellCount = new int[gridWidth * gridHeight];
+            nextPos = new int[gridWidth * gridHeight + 1];
+        }
+
         int totalCells = gridWidth * gridHeight;
         
         Array.Clear(cellCount, 0, totalCells);
@@ -256,8 +281,15 @@ public class Simulation
             int cellId = gy * gridWidth + gx;
 
             int pos = nextPos[cellId];
-            sortedIndexes[pos] = i;
-            nextPos[cellId]++;
+            if (pos >= 0 && pos < sortedIndexes.Length)
+            {
+                sortedIndexes[pos] = i;
+                nextPos[cellId]++;
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"Ошибка индексации: pos={pos}, cellId={cellId}");
+            }
         }
     }
 }

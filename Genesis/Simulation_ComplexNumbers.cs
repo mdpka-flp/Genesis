@@ -4,18 +4,19 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Raylib_cs;
 
-public class Simulation_ComplexNumbers
+public class Simulation_ComplexNumbers : ISimulation
 {
     public Particle[] Particles;
     public Complex[,] InteractionMatrix;
 
-    public float InteractionRadius;
-    public float ForceMultiplier;
-    public float Friction;
-    public float MinDistance;
-    public float RepulsionStrength;
+    public float InteractionRadius { get; set; } = 80f;
+    public float ForceMultiplier { get; set; } = 40f;
+    public float Friction { get; set; } = 0.98f;
+    public float MinDistance { get; set; } = 25f;
+    public float RepulsionStrength { get; set; } = 25f;
 
-    public int TypeCount;
+    public int TypeCount { get; private set; }
+    public int ParticleCount => Particles.Length;
 
     private int screenWidth;
     private int screenHeight;
@@ -40,12 +41,7 @@ public class Simulation_ComplexNumbers
 
         Particles = new Particle[particleCount];
         this.TypeCount = typeCount;
-
-        InteractionRadius = 80f;
-        ForceMultiplier = 40f;
-        Friction = 0.98f;
-        MinDistance = 60f;
-        RepulsionStrength = 70;
+        
         cellSize = InteractionRadius;
         
         gridWidth = (int)Math.Ceiling(screenWidth / cellSize);
@@ -144,8 +140,7 @@ public class Simulation_ComplexNumbers
                 a.Velocity = Vector2.Normalize(a.Velocity) * maxSpeed;
 
             a.Position += a.Velocity * deltaTime;
-
-            // Телепортация при выходе за границы
+            
             if (a.Position.X < 0) a.Position.X += screenWidth;
             if (a.Position.X > screenWidth) a.Position.X -= screenWidth;
             if (a.Position.Y < 0) a.Position.Y += screenHeight;
@@ -168,19 +163,19 @@ public class Simulation_ComplexNumbers
 
     public void GenerateRules()
     {
-        /*InteractionMatrix = new Complex[TypeCount, TypeCount];
+        InteractionMatrix = new Complex[TypeCount, TypeCount];
         for (int i = 0; i < TypeCount; i++)
             for (int j = 0; j < TypeCount; j++)
-                InteractionMatrix[i, j] = (float)(random.Next(-10, 10));*/
+                InteractionMatrix[i, j] = new Complex(random.Next(-10, 10), random.Next(-10, 10));
         
-        InteractionMatrix = new Complex[TypeCount, TypeCount];
+        /*InteractionMatrix = new Complex[TypeCount, TypeCount];
         if (TypeCount >= 2)
         {
             InteractionMatrix[0, 0] = new Complex(3, 0);
             
-            InteractionMatrix[0, 1] = new Complex(0, 3);
+            InteractionMatrix[0, 1] = new Complex(0, -3);
             
-            InteractionMatrix[0, 2] = new Complex(0, 3);
+            InteractionMatrix[0, 2] = new Complex(0, -3);
             
             InteractionMatrix[1, 0] = new Complex(0, -3);
             
@@ -188,12 +183,12 @@ public class Simulation_ComplexNumbers
             
             InteractionMatrix[1, 2] = new Complex(0, -3);
             
-            InteractionMatrix[2, 0] = new Complex(0, 3);
+            InteractionMatrix[2, 0] = new Complex(0, -3);
             
-            InteractionMatrix[2, 1] = new Complex(0, 3);
+            InteractionMatrix[2, 1] = new Complex(0, -3);
             
             InteractionMatrix[2, 2] = new Complex(3, 0);
-        }
+        }*/
     }
 
     public void GenerateColors()
@@ -224,6 +219,17 @@ public class Simulation_ComplexNumbers
             GenerateRules();
         }
     }
+    
+    public void Restart()
+    {
+        for (int i = 0; i < Particles.Length; i++)
+        {
+            Particles[i].Position = new Vector2(
+                random.Next(0, screenWidth),
+                random.Next(0, screenHeight));
+            Particles[i].Velocity = Vector2.Zero;
+        }
+    }
 
     public void SetParticleCount(int newCount)
     {
@@ -251,16 +257,24 @@ public class Simulation_ComplexNumbers
 
     public void BuildSpatialLookup()
     {
-        if (cellCount == null || cellStart == null || nextPos == null || sortedIndexes == null)
+        screenWidth = Raylib.GetScreenWidth();
+        screenHeight = Raylib.GetScreenHeight();
+        
+        int newGridWidth = (int)Math.Ceiling(screenWidth / InteractionRadius);
+        int newGridHeight = (int)Math.Ceiling(screenHeight / InteractionRadius);
+        
+        if (newGridWidth != gridWidth || newGridHeight != gridHeight || cellSize != InteractionRadius)
         {
-            gridWidth = (int)Math.Ceiling(screenWidth / cellSize);
-            gridHeight = (int)Math.Ceiling(screenHeight / cellSize);
+            gridWidth = newGridWidth;
+            gridHeight = newGridHeight;
+            cellSize = InteractionRadius;
+
             sortedIndexes = new int[Particles.Length];
             cellStart = new int[gridWidth * gridHeight + 1];
             cellCount = new int[gridWidth * gridHeight];
             nextPos = new int[gridWidth * gridHeight + 1];
         }
-        
+
         int totalCells = gridWidth * gridHeight;
         
         Array.Clear(cellCount, 0, totalCells);
@@ -292,8 +306,15 @@ public class Simulation_ComplexNumbers
             int cellId = gy * gridWidth + gx;
 
             int pos = nextPos[cellId];
-            sortedIndexes[pos] = i;
-            nextPos[cellId]++;
+            if (pos >= 0 && pos < sortedIndexes.Length)
+            {
+                sortedIndexes[pos] = i;
+                nextPos[cellId]++;
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"Ошибка индексации: pos={pos}, cellId={cellId}");
+            }
         }
     }
 }
