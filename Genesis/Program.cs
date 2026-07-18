@@ -11,7 +11,7 @@ static class Program
         Raylib.SetTargetFPS(60);
         
         currentSim = new Simulation();
-        currentSim.Initialize(5000,3);
+        currentSim.Initialize(1000,3);
         currentSim.GenerateRules();
         
         var ui = new GenesisUI(() => currentSim, OnSimulationTypeChanged);
