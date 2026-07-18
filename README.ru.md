@@ -9,6 +9,6 @@ Genesis - мой школьный проект о моделировании с�
 
 ---
 
-### 📡 Contacts
+### 📡 Контакты
 ✈️ **Telegram:** [mdpka](https://t.me/mdpka_cs)  
 🎥 **YouTube:** [mdpka](https://www.youtube.com/@mdpka_cs)
